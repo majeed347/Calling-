@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<meta name="theme-color" content="#0b141a" />
+<title>Dial — Secure Calling</title>
+<style>
+  :root {
+    --bg: #0b141a;
+    --bg-2: #111b21;
+    --bg-3: #202c33;
+    --bg-4: #2a3942;
+    --border: #222d34;
+    --text: #e9edef;
+    --text-2: #8696a0;
+    --text-3: #667781;
+    --accent: #00a884;
+    --accent-2: #06cf9c;
+    --accent-hover: #00c298;
+    --danger: #f15c6d;
+    --danger-hover: #e0495b;
+    --green: #25d366;
+    --warn: #f5a623;
+    --radius: 12px;
+    --shadow: 0 12px 40px rgba(0,0,0,0.35);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+  input { font-family: inherit; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--bg-4); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4b54; }
+
+  /* ================= AUTH SCREEN ================= */
+  .auth-wrap {
+    position: fixed; inset: 0; display: grid; place-items: center; padding: 20px;
+    background: radial-gradient(circle at 30% 10%, #1e3a4a 0%, #0b141a 60%);
+    z-index: 100;
+  }
+  .auth-card {
+    width: 100%; max-width: 400px;
+    background: var(--bg-2);
+    border-radius: 20px;
+    padding: 32px 26px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+    animation: fadeUp .4s ease;
+  }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: none; } }
+  .brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 6px; }
+  .brand-icon {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: grid; place-items: center; font-size: 22px;
+  }
+  .brand-text { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+  .auth-sub { text-align: center; font-size: 13px; color: var(--text-2); margin-bottom: 24px; }
+
+  .tabs {
+    display: flex; gap: 4px; padding: 4px; margin-bottom: 22px;
+    background: var(--bg-3); border-radius: 12px;
+  }
+  .tabs button {
+    flex: 1; padding: 10px; border-radius: 9px; font-size: 13px; font-weight: 600;
+    color: var(--text-2); transition: .2s;
+  }
+  .tabs button.active { background: var(--accent); color: #0b141a; }
+
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block; font-size: 12px; color: var(--text-2);
+    margin: 0 0 6px 4px; font-weight: 500;
+  }
+  .field input {
+    width: 100%; padding: 13px 15px;
+    background: var(--bg-3); border: 1.5px solid transparent;
+    border-radius: 11px; color: var(--text); font-size: 15px;
+    outline: none; transition: .15s;
+  }
+  .field input::placeholder { color: var(--text-3); }
+  .field input:focus { border-color: var(--accent); background: var(--bg-4); }
+
+  .btn {
+    width: 100%; padding: 13px; border-radius: 11px;
+    font-size: 15px; font-weight: 600; transition: .15s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #0b141a; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:hover:not(:disabled) { background: var(--danger-hover); }
+  .btn-ghost { background: var(--bg-3); color: var(--text); }
+  .btn-ghost:hover { background: var(--bg-4); }
+
+  .msg { font-size: 13px; text-align: center; margin-top: 10px; min-height: 18px; }
+  .msg-error { color: var(--danger); }
+  .msg-ok { color: var(--accent-2); }
+
+  /* ================= APP SHELL ================= */
+  .app {
+    display: grid; grid-template-columns: 340px 1fr;
+    height: 100vh; width: 100vw;
+    opacity: 0; pointer-events: none; transition: opacity .25s;
+  }
+  .app.on { opacity: 1; pointer-events: auto; }
+
+  /* ================= SIDEBAR ================= */
+  .sidebar {
+    background: var(--bg-2); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .sidebar-header {
+    padding: 14px 16px; display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--border); min-height: 60px;
+  }
+  .me-avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-weight: 700; font-size: 15px; color: #0b141a;
+    flex-shrink: 0;
+  }
+  .me-info { flex: 1; min-width: 0; }
+  .me-name { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .me-number { font-size: 12px; color: var(--text-2); font-family: ui-monospace, monospace; }
+  .icon-btn {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 18px;
+    transition: .15s; color: var(--text-2);
+  }
+  .icon-btn:hover { background: var(--bg-3); color: var(--text); }
+
+  .search-box { padding: 10px 12px; }
+  .search-box input {
+    width: 100%; padding: 10px 14px 10px 38px;
+    background: var(--bg-3); border: none; border-radius: 10px;
+    color: var(--text); font-size: 14px; outline: none;
+  }
+  .search-box { position: relative; }
+  .search-box::before {
+    content: "🔍"; position: absolute; left: 24px; top: 50%;
+    transform: translateY(-50%); font-size: 13px; pointer-events: none; opacity: 0.5;
+  }
+
+  .list-section { flex: 1; overflow-y: auto; min-height: 0; }
+  .list-label {
+    padding: 12px 16px 6px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text-3); font-weight: 600;
+  }
+  .contact {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 16px; cursor: pointer; transition: .12s;
+    border-left: 3px solid transparent;
+  }
+  .contact:hover { background: var(--bg-3); }
+  .contact.active { background: var(--bg-3); border-left-color: var(--accent); }
+  .contact-avatar {
+    width: 42px; height: 42px; border-radius: 50%;
+    display: grid; place-items: center; font-weight: 600; font-size: 15px;
+    color: #0b141a; position: relative; flex-shrink: 0;
+  }
+  .presence {
+    position: absolute; bottom: 0; right: 0;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--text-3); border: 2.5px solid var(--bg-2);
+  }
+  .presence.online { background: var(--green); }
+  .contact-info { flex: 1; min-width: 0; }
+  .contact-name { font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .contact-num { font-size: 12.5px; color: var(--text-2); font-family: ui-monospace, monospace; }
+
+  .empty-list { text-align: center; padding: 40px 20px; color: var(--text-3); font-size: 13px; }
+
+  /* ================= MAIN PANEL ================= */
+  .main {
+    background: var(--bg); display: flex; flex-direction: column;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(255,255,255,0.02) 1px, transparent 0);
+    background-size: 24px 24px;
+    min-height: 0;
+  }
+  .main-header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px; min-height: 60px;
+    background: var(--bg-2);
+  }
+  .main-header h2 { font-size: 16px; font-weight: 600; margin: 0; }
+  .main-header .sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+
+  .main-body {
+    flex: 1; overflow-y: auto; padding: 24px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 0;
+  }
+
+  /* Dial pad view */
+  .dial-wrap { width: 100%; max-width: 340px; animation: fadeUp .3s ease; }
+  .dial-num {
+    text-align: center; font-size: 32px; font-family: ui-monospace, monospace;
+    font-weight: 600; letter-spacing: 4px; padding: 16px;
+    min-height: 68px; color: var(--text);
+    background: var(--bg-2); border-radius: var(--radius);
+    margin-bottom: 14px;
+    overflow: hidden; white-space: nowrap;
+  }
+  .dial-num.empty { color: var(--text-3); font-size: 20px; letter-spacing: 1px; }
+  .dialpad {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 10px; margin-bottom: 16px;
+  }
+  .dialpad button {
+    padding: 14px 0; font-size: 22px; font-weight: 600;
+    background: var(--bg-2); color: var(--text);
+    border-radius: 14px; transition: .12s;
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+  }
+  .dialpad button:hover { background: var(--bg-3); }
+  .dialpad button:active { background: var(--accent); color: #0b141a; }
+  .dialpad button small { font-size: 9px; color: var(--text-2); font-weight: 500; letter-spacing: 1px; }
+  .dialpad button.action { font-size: 18px; color: var(--text-2); }
+  .dialpad button.action:hover { color: var(--text); }
+
+  .call-btn-wrap { display: flex; justify-content: center; }
+  .call-fab {
+    width: 66px; height: 66px; border-radius: 50%;
+    background: var(--accent); color: #0b1314;
+    display: grid; place-items: center; font-size: 26px;
+    box-shadow: 0 6px 20px rgba(0,168,132,0.4);
+    transition: .15s;
+  }
+  .call-fab:hover { background: var(--accent-hover); transform: scale(1.05); }
+  .call-fab:active { transform: scale(0.95); }
+  .call-fab:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* ================= CALL OVERLAY ================= */
+  .call-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: radial-gradient(circle at 50% 30%, #163a3d 0%, #0b141a 65%);
+    display: none; flex-direction: column;
+    padding: 28px 20px 40px;
+    animation: fadeUp .3s ease;
+  }
+  .call-overlay.on { display: flex; }
+  .call-top { text-align: center; color: var(--text-2); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
+
+  .call-center {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 20px;
+  }
+  .call-avatar {
+    width: 130px; height: 130px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 48px; font-weight: 700; color: #0b141a;
+    position: relative;
+  }
+  .call-avatar::after {
+    content: ""; position: absolute; inset: -12px;
+    border-radius: 50%;
+    border: 2px solid rgba(0,168,132,0.4);
+    animation: ripple 2s infinite;
+  }
+  .call-overlay.connected .call-avatar::after { animation: none; border-color: rgba(0,168,132,0.25); }
+  @keyframes ripple {
+    0%   { transform: scale(1);   opacity: 0.8; }
+    100% { transform: scale(1.4); opacity: 0; }
+  }
+  .call-num { font-size: 26px; font-family: ui-monospace, monospace; font-weight: 600; }
+  .call-name { color: var(--text-2); font-size: 15px; }
+  .call-status { font-size: 14px; color: var(--accent-2); margin-top: 4px; min-height: 20px; }
+  .call-timer { font-size: 20px; font-family: ui-monospace, monospace; color: var(--green); min-height: 24px; }
+
+  .call-controls { display: flex; gap: 22px; justify-content: center; }
+  .ctrl {
+    width: 62px; height: 62px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 24px;
+    transition: .15s;
+  }
+  .ctrl:hover { transform: scale(1.08); }
+  .ctrl:active { transform: scale(0.94); }
+  .ctrl-accept { background: var(--green); color: #0b141a; }
+  .ctrl-decline { background: var(--danger); color: #fff; }
+  .ctrl-neutral { background: var(--bg-3); color: var(--text); }
+  .ctrl-neutral.muted { background: var(--danger); color: #fff; }
+
+  /* ================= ADMIN PANEL ================= */
+  .admin-view { width: 100%; max-width: 680px; padding: 8px 0; }
+  .admin-tabs {
+    display: flex; gap: 6px; margin-bottom: 20px; padding: 4px;
+    background: var(--bg-2); border-radius: 12px;
+  }
+  .admin-tabs button {
+    flex: 1; padding: 10px; border-radius: 9px; font-size: 13px;
+    color: var(--text-2); font-weight: 500;
+  }
+  .admin-tabs button.active { background: var(--bg-4); color: var(--text); }
+  .admin-tabs button .count {
+    display: inline-block; background: var(--accent); color: #0b141a;
+    border-radius: 10px; padding: 1px 7px; font-size: 11px;
+    margin-left: 4px; font-weight: 700;
+  }
+  .user-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px; background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 8px;
+  }
+  .user-row .avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: grid; place-items: center; font-weight: 600; font-size: 15px;
+    color: #0b141a; flex-shrink: 0;
+  }
+  .user-row .info { flex: 1; min-width: 0; }
+  .user-row .name { font-weight: 600; font-size: 15px; }
+  .user-row .num { font-size: 12.5px; color: var(--text-2); font-family: ui-monospace, monospace; }
+  .user-row .actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .user-row .actions button {
+    padding: 8px 14px; border-radius: 9px; font-size: 13px; font-weight: 600;
+    transition: .15s;
+  }
+  .btn-approve { background: var(--accent); color: #0b141a; }
+  .btn-approve:hover { background: var(--accent-hover); }
+  .btn-reject { background: rgba(241,92,109,0.15); color: var(--danger); }
+  .btn-reject:hover { background: rgba(241,92,109,0.25); }
+
+  /* ================= TOAST ================= */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+    padding: 12px 22px; border-radius: 12px;
+    background: var(--bg-4); color: var(--text);
+    font-size: 14px; font-weight: 500;
+    box-shadow: var(--shadow);
+    opacity: 0; pointer-events: none;
+    transition: .25s;
+    z-index: 500;
+    border: 1px solid var(--border);
+  }
+  .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.error { background: var(--danger); color: #fff; }
+  .toast.success { background: var(--accent); color: #0b141a; }
+
+  /* ================= SPINNER ================= */
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2.5px solid rgba(255,255,255,0.3);
+    border-top-color: #fff; border-radius: 50%;
+    animation: spin .7s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ================= RESPONSIVE ================= */
+  @media (max-width: 768px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar {
+      position: fixed; inset: 0; z-index: 50;
+      width: 100%; transition: transform .25s;
+    }
+    .main { display: none; }
+    .sidebar.hidden { transform: translateX(-100%); }
+    .main-header { padding: 10px 14px; }
+    .dial-num { font-size: 28px; }
+    .call-avatar { width: 110px; height: 110px; font-size: 40px; }
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ============ AUTH ============ -->
+<div class="auth-wrap" id="authWrap">
+  <div class="auth-card">
+    <div class="brand">
+      <div class="brand-icon">📞</div>
+      <div class="brand-text">Dial</div>
+    </div>
+    <p class="auth-sub">Secure voice calling</p>
+
+    <div class="tabs">
+      <button id="tabLogin" class="active">Sign In</button>
+      <button id="tabSignup">Register</button>
+      <button id="tabAdmin">Admin</button>
+    </div>
+
+    <div id="formLogin">
+      <div class="field">
+        <label>Phone number</label>
+        <input id="logNumber" maxlength="6" inputmode="numeric" placeholder="1001" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="logPassword" type="password" placeholder="Enter your password" autocomplete="current-password" />
+      </div>
+      <button class="btn btn-primary" id="btnLogin">Sign In</button>
+      <div class="msg msg-error" id="loginError"></div>
+    </div>
+
+    <div id="formSignup" class="hidden">
+      <div class="field">
+        <label>Phone number (3-6 digits)</label>
+        <input id="sgnNumber" maxlength="6" inputmode="numeric" placeholder="1001" />
+      </div>
+      <div class="field">
+        <label>Full name</label>
+        <input id="sgnName" placeholder="Your name" />
+      </div>
+      <div class="field">
+        <label>Password (min 4 chars)</label>
+        <input id="sgnPassword" type="password" placeholder="Choose a password" />
+      </div>
+      <button class="btn btn-primary" id="btnSignup">Request Access</button>
+      <div class="msg msg-error" id="signupError"></div>
+      <div class="msg msg-ok" id="signupOk"></div>
+    </div>
+
+    <div id="formAdmin" class="hidden">
+      <div class="field">
+        <label>Admin username</label>
+        <input id="admUser" placeholder="admin" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="admPass" type="password" placeholder="Enter admin password" autocomplete="current-password" />
+      </div>
+      <button class="btn btn-danger" id="btnAdminLogin">Admin Sign In</button>
+      <div class="msg msg-error" id="adminError"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MAIN APP ============ -->
+<div class="app" id="app">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="me-avatar" id="meAvatar"></div>
+      <div class="me-info">
+        <div class="me-name" id="meName">—</div>
+        <div class="me-number" id="meNumber">—</div>
+      </div>
+      <button class="icon-btn" id="btnLogout" title="Sign out">⏻</button>
+    </div>
+
+    <div class="search-box">
+      <input id="searchInput" placeholder="Search contacts" />
+    </div>
+
+    <div class="list-section">
+      <div class="list-label">Online now</div>
+      <div id="contactsList">
+        <div class="empty-list">No one is online</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main" id="main">
+    <div class="main-header">
+      <h2 id="mainTitle">New call</h2>
+      <div style="flex:1"></div>
+      <span class="sub" id="mainSub"></span>
+    </div>
+
+    <div class="main-body" id="mainBody">
+      <!-- Dial pad -->
+      <div class="dial-wrap" id="dialWrap">
+        <div class="dial-num empty" id="dialDisplay">Enter a number</div>
+        <div class="dialpad">
+          <button data-k="1">1</button>
+          <button data-k="2">2<small>ABC</small></button>
+          <button data-k="3">3<small>DEF</small></button>
+          <button data-k="4">4<small>GHI</small></button>
+          <button data-k="5">5<small>JKL</small></button>
+          <button data-k="6">6<small>MNO</small></button>
+          <button data-k="7">7<small>PQRS</small></button>
+          <button data-k="8">8<small>TUV</small></button>
+          <button data-k="9">9<small>WXYZ</small></button>
+          <button class="action" id="btnClear">⌫</button>
+          <button data-k="0">0</button>
+          <button class="action" id="btnBack">C</button>
+        </div>
+        <div class="call-btn-wrap">
+          <button class="call-fab" id="btnCall" title="Call">📞</button>
+        </div>
+        <div class="msg msg-error" id="dialError"></div>
+      </div>
+
+      <!-- Admin view -->
+      <div class="admin-view hidden" id="adminView">
+        <div class="admin-tabs">
+          <button data-tab="pending" class="active">Pending <span class="count" id="cntPending">0</span></button>
+          <button data-tab="approved">Approved <span class="count" id="cntApproved">0</span></button>
+          <button data-tab="rejected">Rejected <span class="count" id="cntRejected">0</span></button>
+        </div>
+        <div id="adminList"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ============ CALL OVERLAY ============ -->
+<div class="call-overlay" id="callOverlay">
+  <div class="call-top">Dial · Voice call</div>
+  <div class="call-center">
+    <div class="call-avatar" id="callAvatar">?</div>
+    <div class="call-num" id="callPeerNumber">—</div>
+    <div class="call-name" id="callPeerName">—</div>
+    <div class="call-status" id="callStatus">Calling…</div>
+    <div class="call-timer" id="callTimer"></div>
+  </div>
+  <div class="call-controls" id="incomingControls" style="display:none;">
+    <button class="ctrl ctrl-decline" id="btnDecline" title="Decline">✕</button>
+    <button class="ctrl ctrl-accept" id="btnAccept" title="Accept">📞</button>
+  </div>
+  <div class="call-controls" id="inCallControls" style="display:none;">
+    <button class="ctrl ctrl-neutral" id="btnMute" title="Mute">🎤</button>
+    <button class="ctrl ctrl-decline" id="btnHangup" title="Hang up">✕</button>
+  </div>
+  <div class="call-controls" id="outgoingControls" style="display:none;">
+    <button class="ctrl ctrl-decline" id="btnCancel" title="Cancel">✕</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<audio id="remoteAudio" autoplay></audio>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+const $ = id => document.getElementById(id);
+
+// ---------- STATE ----------
+let myNumber = null, myName = null;
+let localStream = null, pc = null;
+let peerNumber = null;
+let callTimerInterval = null, callStartTime = null;
+let isMuted = false;
+let dialBuffer = '';
+let isAdmin = false;
+let allContacts = [];
+let searchTerm = '';
+
+const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+// ---------- HELPERS ----------
+function toast(msg, type) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast on ' + (type || '');
+  setTimeout(() => t.className = 'toast ' + (type || ''), 2600);
+}
+function colorFor(str) {
+  const colors = ['#e57373','#64b5f6','#81c784','#ffb74d','#ba68c8','#4dd0e1','#f06292','#9575cd','#4db6ac','#aed581'];
+  let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return colors[h % colors.length];
+}
+function initials(name) {
+  return (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0,2).join('').toUpperCase();
+}
+function fmt(s) {
+  return Math.floor(s/60).toString().padStart(2,'0') + ':' + (s%60).toString().padStart(2,'0');
+}
+
+// ---------- AUTH UI ----------
+const authTabs = { login: $('formLogin'), signup: $('formSignup'), admin: $('formAdmin') };
+function showAuthTab(name) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  $('tab' + name[0].toUpperCase() + name.slice(1)).classList.add('active');
+  Object.entries(authTabs).forEach(([k, v]) => v.classList.toggle('hidden', k !== name));
+}
+$('tabLogin').onclick = () => showAuthTab('login');
+$('tabSignup').onclick = () => showAuthTab('signup');
+$('tabAdmin').onclick = () => showAuthTab('admin');
+
+// Enter key submits current form
+['logNumber','logPassword'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('btnLogin').click(); }));
+['sgnNumber','sgnName','sgnPassword'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('btnSignup').click(); }));
+['admUser','admPass'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('btnAdminLogin').click(); }));
+
+// ---------- SIGNUP ----------
+$('btnSignup').onclick = () => {
+  $('signupError').textContent = ''; $('signupOk').textContent = '';
+  const btn = $('btnSignup'); btn.disabled = true;
+  socket.emit('signup', {
+    number: $('sgnNumber').value.trim(),
+    name: $('sgnName').value.trim(),
+    password: $('sgnPassword').value
+  }, res => {
+    btn.disabled = false;
+    if (!res.ok) return $('signupError').textContent = res.error;
+    $('signupOk').textContent = res.message;
+    toast('Request submitted to admin', 'success');
+  });
+};
+
+// ---------- LOGIN ----------
+$('btnLogin').onclick = () => {
+  $('loginError').textContent = '';
+  const btn = $('btnLogin'); btn.disabled = true;
+  socket.emit('login', {
+    number: $('logNumber').value.trim(),
+    password: $('logPassword').value
+  }, res => {
+    btn.disabled = false;
+    if (!res.ok) return $('loginError').textContent = res.error;
+    onLoginSuccess(res);
+  });
+};
+
+function onLoginSuccess(res) {
+  myNumber = res.number; myName = res.name;
+  $('authWrap').style.display = 'none';
+  $('app').classList.add('on');
+  $('meAvatar').textContent = initials(myName);
+  $('meAvatar').style.background = colorFor(myName);
+  $('meName').textContent = myName;
+  $('meNumber').textContent = myNumber;
+  toast('Welcome, ' + myName, 'success');
+  if (window.innerWidth <= 768) $('sidebar').classList.remove('hidden');
+}
+
+// ---------- ADMIN LOGIN ----------
+$('btnAdminLogin').onclick = () => {
+  $('adminError').textContent = '';
+  socket.emit('admin-login', {
+    username: $('admUser').value.trim(),
+    password: $('admPass').value
+  }, res => {
+    if (!res.ok) return $('adminError').textContent = res.error;
+    isAdmin = true;
+    $('authWrap').style.display = 'none';
+    $('app').classList.add('on');
+    $('meAvatar').textContent = 'A';
+    $('meAvatar').style.background = colorFor('admin');
+    $('meName').textContent = 'Administrator';
+    $('meNumber').textContent = 'admin';
+    $('dialWrap').classList.add('hidden');
+    $('adminView').classList.remove('hidden');
+    $('mainTitle').textContent = 'Admin Panel';
+    $('mainSub').textContent = 'Manage access requests';
+    renderAdmin(res);
+    toast('Signed in as admin', 'success');
+  });
+};
+
+// ---------- LOGOUT ----------
+$('btnLogout').onclick = () => {
+  location.reload();
+};
+
+// ---------- ONLINE LIST ----------
+socket.on('online-users', list => {
+  allContacts = list;
+  renderContacts();
+});
+
+$('searchInput').oninput = e => { searchTerm = e.target.value.toLowerCase(); renderContacts(); };
+
+function renderContacts() {
+  const list = $('contactsList');
+  const others = allContacts
+    .filter(u => u.number !== myNumber)
+    .filter(u => !searchTerm || u.name.toLowerCase().includes(searchTerm) || u.number.includes(searchTerm));
+
+  if (!others.length) {
+    list.innerHTML = '<div class="empty-list">' +
+      (searchTerm ? 'No matches' : 'No one is online') + '</div>';
+    return;
+  }
+  list.innerHTML = '';
+  others.forEach(u => {
+    const el = document.createElement('div');
+    el.className = 'contact';
+    el.innerHTML = `
+      <div class="contact-avatar" style="background:${colorFor(u.name)}">
+        ${initials(u.name)}
+        <span class="presence online"></span>
+      </div>
+      <div class="contact-info">
+        <div class="contact-name">${u.name}</div>
+        <div class="contact-num">${u.number}</div>
+      </div>`;
+    el.onclick = () => {
+      dialBuffer = u.number;
+      updateDial();
+      if (window.innerWidth <= 768) $('sidebar').classList.add('hidden');
+    };
+    list.appendChild(el);
+  });
+}
+
+// ---------- DIAL PAD ----------
+function updateDial() {
+  const el = $('dialDisplay');
+  if (!dialBuffer) { el.textContent = 'Enter a number'; el.classList.add('empty'); }
+  else { el.textContent = dialBuffer; el.classList.remove('empty'); }
+}
+document.querySelectorAll('.dialpad button[data-k]').forEach(b => {
+  b.onclick = () => {
+    if (dialBuffer.length < 6) { dialBuffer += b.dataset.k; updateDial(); }
+  };
+});
+$('btnClear').onclick = () => { dialBuffer = dialBuffer.slice(0, -1); updateDial(); };
+$('btnBack').onclick = () => { dialBuffer = ''; updateDial(); };
+
+// ---------- CALL FLOW ----------
+$('btnCall').onclick = async () => {
+  $('dialError').textContent = '';
+  const target = dialBuffer.trim();
+  if (!/^\d{3,6}$/.test(target)) return $('dialError').textContent = 'Enter a valid number';
+  try { localStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch { return $('dialError').textContent = 'Microphone permission required'; }
+
+  const btn = $('btnCall'); btn.disabled = true;
+  socket.emit('call-user', { to: target }, res => {
+    btn.disabled = false;
+    if (!res.ok) return $('dialError').textContent = res.error;
+    openCallOverlay(target, '', 'Calling…', 'outgoing');
+    peerNumber = target;
+  });
+};
+
+function openCallOverlay(number, name, status, mode) {
+  $('callPeerNumber').textContent = number;
+  $('callPeerName').textContent = name || '';
+  $('callAvatar').textContent = number.slice(-2);
+  $('callAvatar').style.background = colorFor(name || number);
+  $('callStatus').textContent = status;
+  $('callTimer').textContent = '';
+  $('callOverlay').classList.add('on');
+  $('callOverlay').classList.remove('connected');
+  $('incomingControls').style.display = mode === 'incoming' ? 'flex' : 'none';
+  $('inCallControls').style.display = 'none';
+  $('outgoingControls').style.display = mode === 'outgoing' ? 'flex' : 'none';
+}
+function closeCallOverlay() { $('callOverlay').classList.remove('on'); }
+
+socket.on('incoming-call', ({ from, fromName }) => {
+  peerNumber = from;
+  openCallOverlay(from, fromName, 'Incoming call…', 'incoming');
+});
+
+$('btnAccept').onclick = async () => {
+  try { localStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch { toast('Microphone required', 'error'); return; }
+  socket.emit('accept-call', { to: peerNumber });
+};
+$('btnDecline').onclick = () => { socket.emit('decline-call', { to: peerNumber }); cleanup(); };
+$('btnCancel').onclick = () => { socket.emit('hangup', { to: peerNumber }); cleanup(); };
+$('btnHangup').onclick = () => { socket.emit('hangup', { to: peerNumber }); cleanup(); };
+$('btnMute').onclick = () => {
+  if (!localStream) return;
+  isMuted = !isMuted;
+  localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
+  $('btnMute').classList.toggle('muted', isMuted);
+  $('btnMute').textContent = isMuted ? '🔇' : '🎤';
+};
+
+socket.on('call-accepted', async ({ by }) => {
+  $('callStatus').textContent = 'Connecting…';
+  $('outgoingControls').style.display = 'none';
+  $('inCallControls').style.display = 'flex';
+  $('callOverlay').classList.add('connected');
+
+  if (!pc) {
+    pc = new RTCPeerConnection(rtcConfig);
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+    pc.onicecandidate = e => { if (e.candidate) socket.emit('ice-candidate', { to: by, candidate: e.candidate }); };
+    pc.ontrack = e => { $('remoteAudio').srcObject = e.streams[0]; };
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit('offer', { to: by, offer });
+  }
+});
+
+socket.on('offer', async ({ from, offer }) => {
+  if (!pc) {
+    pc = new RTCPeerConnection(rtcConfig);
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+    pc.onicecandidate = e => { if (e.candidate) socket.emit('ice-candidate', { to: from, candidate: e.candidate }); };
+    pc.ontrack = e => { $('remoteAudio').srcObject = e.streams[0]; };
+  }
+  await pc.setRemoteDescription(offer);
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  socket.emit('answer', { to: from, answer });
+  $('callStatus').textContent = 'Connected';
+  $('incomingControls').style.display = 'none';
+  $('inCallControls').style.display = 'flex';
+  $('callOverlay').classList.add('connected');
+  startTimer();
+});
+
+socket.on('answer', async ({ from, answer }) => {
+  if (pc) await pc.setRemoteDescription(answer);
+  $('callStatus').textContent = 'Connected';
+  startTimer();
+});
+
+socket.on('ice-candidate', async ({ from, candidate }) => {
+  if (pc) { try { await pc.addIceCandidate(candidate); } catch(e){} }
+});
+
+socket.on('call-declined', () => { $('callStatus').textContent = 'Declined'; toast('Call declined', 'error'); setTimeout(cleanup, 1200); });
+socket.on('call-ended', () => { $('callStatus').textContent = 'Call ended'; setTimeout(cleanup, 800); });
+
+function startTimer() {
+  callStartTime = Date.now(); $('callTimer').textContent = '00:00';
+  clearInterval(callTimerInterval);
+  callTimerInterval = setInterval(() => {
+    $('callTimer').textContent = fmt(Math.floor((Date.now() - callStartTime) / 1000));
+  }, 500);
+}
+function cleanup() {
+  clearInterval(callTimerInterval);
+  if (pc) { try { pc.close(); } catch(e){} pc = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  $('remoteAudio').srcObject = null;
+  peerNumber = null; isMuted = false;
+  $('btnMute').classList.remove('muted'); $('btnMute').textContent = '🎤';
+  closeCallOverlay();
+}
+
+// ---------- ADMIN PANEL ----------
+let adminData = { pending: [], approved: [], rejected: [] };
+let adminTab = 'pending';
+
+function renderAdmin(data) {
+  if (data) adminData = data;
+  $('cntPending').textContent = adminData.pending.length;
+  $('cntApproved').textContent = adminData.approved.length;
+  $('cntRejected').textContent = adminData.rejected.length;
+
+  const list = $('adminList');
+  const items = adminData[adminTab] || [];
+  if (!items.length) {
+    list.innerHTML = '<div class="empty-list">Nothing here yet</div>';
+    return;
+  }
+  list.innerHTML = '';
+  items.forEach(u => {
+    const el = document.createElement('div');
+    el.className = 'user-row';
+    el.innerHTML = `
+      <div class="avatar" style="background:${colorFor(u.name)}">${initials(u.name)}</div>
+      <div class="info">
+        <div class="name">${u.name}</div>
+        <div class="num">${u.number}</div>
+      </div>`;
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    if (adminTab === 'pending') {
+      const ok = document.createElement('button');
+      ok.className = 'btn-approve'; ok.textContent = 'Approve';
+      ok.onclick = () => socket.emit('admin-approve', { number: u.number });
+      const no = document.createElement('button');
+      no.className = 'btn-reject'; no.textContent = 'Reject';
+      no.onclick = () => socket.emit('admin-reject', { number: u.number });
+      actions.append(ok, no);
+    } else {
+      const span = document.createElement('span');
+      span.style.cssText = 'font-size:12px;color:var(--text-2);padding:8px;';
+      span.textContent = adminTab === 'approved' ? 'Active' : 'Blocked';
+      actions.appendChild(span);
+    }
+    el.appendChild(actions);
+    list.appendChild(el);
+  });
+}
+
+document.querySelectorAll('.admin-tabs button').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('.admin-tabs button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    adminTab = b.dataset.tab;
+    renderAdmin();
+  };
+});
+
+socket.on('admin-data', data => { if (isAdmin) renderAdmin(data); });
+socket.on('admin-refresh', () => socket.emit('admin-refresh'));
+
+// ---------- SOCKET DISCONNECT ----------
+socket.on('disconnect', () => {
+  if (myNumber) toast('Connection lost', 'error');
+});
+</script>
+</body>
+</html>
