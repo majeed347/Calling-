@@ -555,6 +555,27 @@ let isAdmin = false;
 let allContacts = [];
 let searchTerm = '';
 
+
+(function(){
+  const u = localStorage.getItem('dial_user');
+  const a = localStorage.getItem('dial_admin');
+  if (u) { try { const o = JSON.parse(u);
+    socket.emit('login', { number: o.number, password: o.password }, r => {
+      if (r.ok) { myNumber = r.number; myName = r.name;
+        document.getElementById('myBadge').textContent = r.number + ' · ' + r.name;
+        Object.values(screens).forEach(x => x.classList.remove('active'));
+        screens.dial.classList.add('active');
+      } else { localStorage.removeItem('dial_user'); }
+    });
+  } catch(e) { localStorage.removeItem('dial_user'); } }
+  if (a) { socket.emit('admin-login', { username: 'admin', password: a }, r => {
+    if (r.ok) { isAdmin = true; adminData = r; renderAdmin();
+      Object.values(screens).forEach(x => x.classList.remove('active'));
+      screens.admin.classList.add('active');
+    } else { localStorage.removeItem('dial_admin'); }
+  }); }
+})();
+
 const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
 // ---------- HELPERS ----------
