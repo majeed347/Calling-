@@ -8,17 +8,18 @@ const bcrypt = require('bcryptjs');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
 app.use(express.static(__dirname));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
-// ---------- PERSISTENT STORE ----------
-const DB_FILE = path.join(__dirname, 'db.json');
+const DB_DIR = process.env.DATA_DIR || __dirname;
+const DB_FILE = path.join(DB_DIR, 'db.json');
 
 function loadDB() {
   if (!fs.existsSync(DB_FILE)) {
     const initial = {
       admin: { username: 'admin', passwordHash: bcrypt.hashSync('admin123', 8) },
-      users: {}  // number -> { number, name, passwordHash, status: 'pending'|'approved'|'rejected', createdAt }
+      users: {}
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2));
     return initial;
@@ -31,9 +32,6 @@ function saveDB(db) {
 }
 
 let db = loadDB();
-
-// ---------- ONLINE SESSIONS ----------
-// number -> socketId
 const online = {};
 
 function broadcastOnline() {
@@ -44,10 +42,26 @@ function broadcastOnline() {
   io.emit('online-users', list);
 }
 
-function broadcastPending() {
-  const pending = Object.values(db.users).filter(u => u.status === 'pending')
+function getPending() {
+  return Object.values(db.users)
+    .filter(u => u.status === 'pending')
     .map(u => ({ number: u.number, name: u.name, createdAt: u.createdAt }));
-  io.emit('pending-users', pending);
+}
+
+function getApproved() {
+  return Object.values(db.users)
+    .filter(u => u.status === 'approved')
+    .map(u => ({ number: u.number, name: u.name }));
+}
+
+function getRejected() {
+  return Object.values(db.users)
+    .filter(u => u.status === 'rejected')
+    .map(u => ({ number: u.number, name: u.name }));
+}
+
+function broadcastPending() {
+  io.emit('pending-users', getPending());
 }
 
 function numberBySocket(socketId) {
@@ -55,14 +69,11 @@ function numberBySocket(socketId) {
   return null;
 }
 
-// ---------- SOCKET HANDLERS ----------
 io.on('connection', (socket) => {
-  // --- SIGNUP ---
   socket.on('signup', ({ number, name, password }, cb) => {
     number = (number || '').trim();
     name = (name || '').trim();
     password = password || '';
-
     if (!/^\d{3,6}$/.test(number)) return cb({ ok: false, error: 'Number must be 3-6 digits' });
     if (!name || name.length < 2) return cb({ ok: false, error: 'Name must be at least 2 chars' });
     if (password.length < 4) return cb({ ok: false, error: 'Password must be at least 4 chars' });
@@ -80,7 +91,6 @@ io.on('connection', (socket) => {
     cb({ ok: true, message: 'Request sent. Wait for admin approval.' });
   });
 
-  // --- USER LOGIN ---
   socket.on('login', ({ number, password }, cb) => {
     number = (number || '').trim();
     const u = db.users[number];
@@ -88,7 +98,6 @@ io.on('connection', (socket) => {
     if (u.status === 'pending') return cb({ ok: false, error: 'Still waiting for admin approval' });
     if (u.status === 'rejected') return cb({ ok: false, error: 'Your registration was rejected' });
     if (!bcrypt.compareSync(password || '', u.passwordHash)) return cb({ ok: false, error: 'Wrong password' });
-
     if (online[number]) return cb({ ok: false, error: 'This number is already logged in elsewhere' });
 
     online[number] = socket.id;
@@ -98,19 +107,17 @@ io.on('connection', (socket) => {
     cb({ ok: true, number: u.number, name: u.name });
   });
 
-  // --- ADMIN LOGIN ---
   socket.on('admin-login', ({ username, password }, cb) => {
     if (username !== db.admin.username || !bcrypt.compareSync(password || '', db.admin.passwordHash)) {
       return cb({ ok: false, error: 'Invalid admin credentials' });
     }
     socket.data.role = 'admin';
-    const pending = Object.values(db.users).filter(u => u.status === 'pending')
-      .map(u => ({ number: u.number, name: u.name, createdAt: u.createdAt }));
-    const approved = Object.values(db.users).filter(u => u.status === 'approved')
-      .map(u => ({ number: u.number, name: u.name }));
-    const rejected = Object.values(db.users).filter(u => u.status === 'rejected')
-      .map(u => ({ number: u.number, name: u.name }));
-    cb({ ok: true, pending, approved, rejected });
+    cb({ ok: true, pending: getPending(), approved: getApproved(), rejected: getRejected() });
+  });
+
+  socket.on('admin-refresh', () => {
+    if (socket.data.role !== 'admin') return;
+    socket.emit('admin-data', { pending: getPending(), approved: getApproved(), rejected: getRejected() });
   });
 
   socket.on('admin-approve', ({ number }) => {
@@ -120,7 +127,7 @@ io.on('connection', (socket) => {
       saveDB(db);
       broadcastPending();
       io.emit('user-approved', { number });
-      socket.emit('admin-refresh');
+      socket.emit('admin-data', { pending: getPending(), approved: getApproved(), rejected: getRejected() });
     }
   });
 
@@ -130,21 +137,16 @@ io.on('connection', (socket) => {
       db.users[number].status = 'rejected';
       saveDB(db);
       broadcastPending();
-      socket.emit('admin-refresh');
+      socket.emit('admin-data', { pending: getPending(), approved: getApproved(), rejected: getRejected() });
     }
   });
 
-  // --- CALL FLOW ---
   socket.on('call-user', ({ to }, cb) => {
     const fromNumber = socket.data.number;
     if (!fromNumber) return cb({ ok: false, error: 'Not logged in' });
     if (!online[to]) return cb({ ok: false, error: 'Number not online' });
     if (to === fromNumber) return cb({ ok: false, error: "Can't call yourself" });
-
-    io.to(online[to]).emit('incoming-call', {
-      from: fromNumber,
-      fromName: db.users[fromNumber].name
-    });
+    io.to(online[to]).emit('incoming-call', { from: fromNumber, fromName: db.users[fromNumber].name });
     cb({ ok: true });
   });
 
@@ -159,43 +161,14 @@ io.on('connection', (socket) => {
     if (online[to]) io.to(online[to]).emit('call-declined', { by: socket.data.number });
   });
 
-  socket.on('offer', ({ to, offer }) => {
-    if (online[to]) io.to(online[to]).emit('offer', { from: socket.data.number, offer });
-  });
+  socket.on('offer', ({ to, offer }) => { if (online[to]) io.to(online[to]).emit('offer', { from: socket.data.number, offer }); });
+  socket.on('answer', ({ to, answer }) => { if (online[to]) io.to(online[to]).emit('answer', { from: socket.data.number, answer }); });
+  socket.on('ice-candidate', ({ to, candidate }) => { if (online[to]) io.to(online[to]).emit('ice-candidate', { from: socket.data.number, candidate }); });
+  socket.on('hangup', ({ to }) => { if (online[to]) io.to(online[to]).emit('call-ended', { by: socket.data.number }); });
 
-  socket.on('answer', ({ to, answer }) => {
-    if (online[to]) io.to(online[to]).emit('answer', { from: socket.data.number, answer });
-  });
-
-  socket.on('ice-candidate', ({ to, candidate }) => {
-    if (online[to]) io.to(online[to]).emit('ice-candidate', { from: socket.data.number, candidate });
-  });
-
-  socket.on('hangup', ({ to }) => {
-    if (online[to]) io.to(online[to]).emit('call-ended', { by: socket.data.number });
-  });
-
-  // --- DISCONNECT ---
   socket.on('disconnect', () => {
     const n = numberBySocket(socket.id);
-    if (n) {
-      delete online[n];
-      broadcastOnline();
-    }
-  });
-});
-
-// Admin needs a refresh hook
-io.on('connection', (socket) => {
-  socket.on('admin-refresh', () => {
-    if (socket.data.role !== 'admin') return;
-    const pending = Object.values(db.users).filter(u => u.status === 'pending')
-      .map(u => ({ number: u.number, name: u.name, createdAt: u.createdAt }));
-    const approved = Object.values(db.users).filter(u => u.status === 'approved')
-      .map(u => ({ number: u.number, name: u.name }));
-    const rejected = Object.values(db.users).filter(u => u.status === 'rejected')
-      .map(u => ({ number: u.number, name: u.name }));
-    socket.emit('admin-data', { pending, approved, rejected });
+    if (n) { delete online[n]; broadcastOnline(); }
   });
 });
 
